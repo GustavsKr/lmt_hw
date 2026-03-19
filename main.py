@@ -65,12 +65,12 @@ def choose_interceptor(interceptors, target_distance, target_altitude):
             
             # Dynamic Cost Calculation
             # TODO???: If it's the jet, cost = (distance / speed / 60) * 1000
-            if i.name.lower() == "jet":
-                flight_time_seconds = target_distance / i.speed
-                flight_time_minutes = flight_time_seconds / 60
-                mission_cost = flight_time_minutes * 1000
-            else:
-                mission_cost = i.cost
+            # if i.name.lower() == "jet":
+            #     flight_time_seconds = target_distance / i.speed
+            #     flight_time_minutes = flight_time_seconds / 60
+            #     mission_cost = flight_time_minutes * 1000
+            # else:
+            mission_cost = i.cost
 
             candidates.append({
                 "obj": i,
