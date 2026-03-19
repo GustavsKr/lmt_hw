@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Threat Map</title>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+</head>
+<body>
+
+<h2>Threat Interception Map</h2>
+<div id="map" style="height: 600px;"></div>
+
+<script>
+    const map = L.map('map').setView([56.95, 24.1], 7);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: 'OSM'
+    }).addTo(map);
+
+    let marker;
+
+    async function fetchData() {
+        // Fake request (for demo)
+        const res = await fetch("/last");
+        const data = await res.json();
+
+        if (!data || !data.intercept_coordinates) return;
+
+        const lat = data.intercept_coordinates.x;
+        const lng = data.intercept_coordinates.z;
+
+        if (marker) {
+            map.removeLayer(marker);
+        }
+
+        marker = L.marker([lat, lng])
+            .addTo(map)
+            .bindPopup(
+                `Threat: ${data.threat}<br>Interceptor: ${data.interceptor}`
+            )
+            .openPopup();
+    }
+
+    setInterval(fetchData, 1000);
+</script>
+
+</body>
+</html>
