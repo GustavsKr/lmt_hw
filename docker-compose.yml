@@ -1,5 +1,12 @@
 services:
-  api:
+  radar-system:
     build: .
+    container_name: lmt_radar_app
     ports:
-      - "8000:80"
+      - "8000:8000"
+    volumes:
+      - .:/app
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TZ=Europe/Riga
+    restart: always

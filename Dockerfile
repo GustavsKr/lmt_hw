@@ -1,18 +1,19 @@
-# 1. Use an official Python base image
-FROM python:3.13-slim
+# Use a slim Python image
+FROM python:3.11-slim
 
-# 2. Set the working directory inside the container
-WORKDIR /code
+# Set the working directory inside the container
+WORKDIR /app
 
-# 3. Copy only requirements first (helps with Docker caching)
-COPY ./requirements.txt /code/requirements.txt
+# Install system dependencies (tzdata for timezones)
+RUN apt-get update && apt-get install -y tzdata && rm -rf /var/lib/apt/lists/*
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# 4. Install dependencies
-RUN pip install --no-cache-dir --upgrade -r /code/requirements.txt
+# Copy the rest of your code
+COPY . .
 
-# 5. Copy your application code
-COPY ./app /code/app
+# Expose the port FastAPI runs on
+EXPOSE 8000
 
-# 6. Run the app using the FastAPI CLI
-# --port 80 is standard for containers, --proxy-headers is best practice
-CMD ["fastapi", "run", "app/main.py", "--port", "80", "--proxy-headers"]
+# Command to run your app
+CMD ["python", "main.py"]

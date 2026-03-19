@@ -13,12 +13,12 @@ def run_simulation():
     
     while True:
         data = {
-            "speed_ms": random.uniform(10, 200),
+            "speed_ms": random.uniform(10, 1000),
             "altitude_m": random.uniform(100, 5000),
             "heading_deg": random.uniform(0, 360),
-            "latitude": 56.9 + random.uniform(-0.2, 0.2),
-            "longitude": 24.1 + random.uniform(-0.2, 0.2),
-            "report_time": datetime.utcnow().isoformat()
+            "latitude": 56.9 + random.uniform(-0.5, 0.5),
+            "longitude": 24.1 + random.uniform(-3, 3),
+            "report_time": datetime.now().isoformat()      
         }
         try:
             response = requests.post(URL, json=data)

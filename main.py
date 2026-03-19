@@ -13,16 +13,10 @@ from database import engine, Base, seed_data, SessionLocal, BaseStation, Interce
 
 app = FastAPI()
 
-# Serve static files (map)
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/templates", StaticFiles(directory="templates"), name="templates")
 
-# Store last result for map
 last_result = {}
 
-
-# -----------------------------
-# Radar Input Schema
-# -----------------------------
 class RadarData(BaseModel):
     speed_ms: float
     altitude_m: float
@@ -31,15 +25,10 @@ class RadarData(BaseModel):
     longitude: float
     report_time: datetime
 
-
-# -----------------------------
-# Threat classification
-# -----------------------------
 def classify_threat(speed, altitude):
     """
     AI assisted: structured logic based on assignment rules
     """
-
     if speed < 15 or altitude < 200:
         return "no threat"
     elif speed > 150:
@@ -49,20 +38,12 @@ def classify_threat(speed, altitude):
     else:
         return "potential threat"
 
-
-# -----------------------------
-# Distance calculation
-# -----------------------------
 def calculate_distance(x1, z1, x2, z2):
     """
     Euclidean distance (flat earth assumption)
     """
     return sqrt((x2 - x1) ** 2 + (z2 - z1) ** 2)
 
-
-# -----------------------------
-# Get closest base
-# -----------------------------
 def get_closest_base(db, x, z):
     bases = db.query(BaseStation).all()
 
@@ -71,40 +52,54 @@ def get_closest_base(db, x, z):
 
     return min(bases, key=distance)
 
-
-# -----------------------------
-# Choose interceptor
-# -----------------------------
-def choose_interceptor(db, distance, altitude):
+def choose_interceptor(interceptors, target_distance, target_altitude):
     """
-    Select cheapest interceptor that can reach target
-
-    AI assisted: filtering + min selection
+    Selects the most cost-effective interceptor. 
+    If costs are within 5% of each other, selects the faster one.
     """
-
-    interceptors = db.query(Interceptor).all()
-
-    possible = []
+    candidates = []
 
     for i in interceptors:
-        if distance <= i.range and altitude <= i.altitude:
-            possible.append(i)
+        # Physical Feasibility Check
+        if target_distance <= i.range and target_altitude <= i.altitude:
+            
+            # Dynamic Cost Calculation
+            # TODO???: If it's the jet, cost = (distance / speed / 60) * 1000
+            if i.name.lower() == "jet":
+                flight_time_seconds = target_distance / i.speed
+                flight_time_minutes = flight_time_seconds / 60
+                mission_cost = flight_time_minutes * 1000
+            else:
+                mission_cost = i.cost
 
-    if not possible:
+            candidates.append({
+                "obj": i,
+                "cost": mission_cost,
+                "speed": i.speed
+            })
+
+    if not candidates:
         return None
 
-    return min(possible, key=lambda x: x.cost)
+    # Sort by Cost (Primary) and Speed (Secondary)
+    # We use a 5% "buffer" logic here: if costs are nearly the same, 
+    # the faster one wins.
+    candidates.sort(key=lambda x: x['cost'])
+    best = candidates[0]
+    
+    for c in candidates[1:]:
+        # If this candidate is within 5% of the cheapest cost but is faster
+        if c['cost'] <= best['cost'] * 1.05 and c['speed'] > best['speed']:
+            best = c
 
+    return best['obj']
 
-# -----------------------------
-# API endpoint
-# -----------------------------
 @app.post("/radar")
 def process_radar(data: RadarData):
-
     global last_result
 
     db = SessionLocal()
+    interceptors = db.query(Interceptor).all()
 
     threat = classify_threat(data.speed_ms, data.altitude_m)
 
@@ -123,7 +118,7 @@ def process_radar(data: RadarData):
         data.longitude
     )
 
-    interceptor = choose_interceptor(db, distance, data.altitude_m)
+    interceptor = choose_interceptor(interceptors, distance, data.altitude_m)
 
     if not interceptor:
         db.close()
@@ -148,21 +143,13 @@ def process_radar(data: RadarData):
     last_result = result
     return result
 
-
-# -----------------------------
-# Get last result (for map)
-# -----------------------------
 @app.get("/last")
 def get_last():
     return last_result
 
-
-# -----------------------------
-# Serve map
-# -----------------------------
 @app.get("/")
 def root():
-    return FileResponse("static/index.html")
+    return FileResponse("templates/index.html")
 
 if __name__ == "__main__":
     # 1. Initialize DB
@@ -175,4 +162,4 @@ if __name__ == "__main__":
     sim_thread.start()
 
     # 3. Start the Web Server
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8000)
