@@ -25,7 +25,7 @@ class RadarData(BaseModel):
     longitude: float
     report_time: datetime
 
-def classify_threat(speed, altitude):
+def classify_threat(speed: float, altitude: float):
     """
     AI assisted: structured logic based on assignment rules
     """
@@ -52,45 +52,29 @@ def get_closest_base(db, x, z):
 
     return min(bases, key=distance)
 
-def choose_interceptor(interceptors, target_distance, target_altitude):
-    """
-    Selects the most cost-effective interceptor. 
-    If costs are within 5% of each other, selects the faster one.
-    """
+def choose_interceptor(interceptors, target_distance, target_altitude, target_speed):
     candidates = []
 
     for i in interceptors:
-        # Physical Feasibility Check
-        if target_distance <= i.range and target_altitude <= i.altitude:
-            
-            # Dynamic Cost Calculation
-            # TODO???: If it's the jet, cost = (distance / speed / 60) * 1000
-            # if i.name.lower() == "jet":
-            #     flight_time_seconds = target_distance / i.speed
-            #     flight_time_minutes = flight_time_seconds / 60
-            #     mission_cost = flight_time_minutes * 1000
-            # else:
-            mission_cost = i.cost
+        # Physical constraints
+        if target_distance > i.range or target_altitude > i.altitude or target_speed > i.speed:
+            continue
 
-            candidates.append({
-                "obj": i,
-                "cost": mission_cost,
-                "speed": i.speed
-            })
+        intercept_time = target_distance / (i.speed - target_speed)
+
+        candidates.append({
+            "obj": i,
+            "cost": i.cost,
+            "speed": i.speed,
+            "time": intercept_time
+        })
 
     if not candidates:
         return None
 
-    # Sort by Cost (Primary) and Speed (Secondary)
-    # We use a 5% "buffer" logic here: if costs are nearly the same, 
-    # the faster one wins.
+    # Sort by cost
     candidates.sort(key=lambda x: x['cost'])
     best = candidates[0]
-    
-    for c in candidates[1:]:
-        # If this candidate is within 5% of the cheapest cost but is faster
-        if c['cost'] <= best['cost'] * 1.05 and c['speed'] > best['speed']:
-            best = c
 
     return best['obj']
 
@@ -118,7 +102,7 @@ def process_radar(data: RadarData):
         data.longitude
     )
 
-    interceptor = choose_interceptor(interceptors, distance, data.altitude_m)
+    interceptor = choose_interceptor(interceptors, distance, data.altitude_m, data.speed_ms)
 
     if not interceptor:
         db.close()
