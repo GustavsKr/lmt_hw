@@ -1,49 +1,97 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Threat Map</title>
+    <title>Threat Interception Map</title>
     <meta charset="utf-8" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
-    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <style>
+        #map { height: 700px; width: 100%; border-radius: 8px; }
+        body { font-family: sans-serif; margin: 20px; }
+    </style>
 </head>
 <body>
 
-<h2>Threat Interception Map</h2>
-<div id="map" style="height: 600px;"></div>
+    <h2>Defense Network Range Map</h2>
+    <div id="map"></div>
 
-<script>
-    const map = L.map('map').setView([56.95, 24.1], 7);
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: 'OSM'
-    }).addTo(map);
+    <script>
+        const map = L.map('map').setView([56.95, 24.1], 8);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OSM'
+        }).addTo(map);
 
-    let marker;
+        let targetMarker;
 
-    async function fetchData() {
-        // Fake request (for demo)
-        const res = await fetch("/last");
-        const data = await res.json();
+        // 1. Function to load Bases and Interceptor Ranges once
+        async function loadStaticData() {
+            try {
+                const res = await fetch("/map-data");
+                const data = await res.json();
 
-        if (!data || !data.intercept_coordinates) return;
-
-        const lat = data.intercept_coordinates.x;
-        const lng = data.intercept_coordinates.z;
-
-        if (marker) {
-            map.removeLayer(marker);
+                data.bases.forEach(base => {
+                    // Draw Base Detection Range (Blue-ish)
+                    L.circle([base.y, base.x], {
+                        color: '#2A52BE',
+                        fillColor: '#2A52BE',
+                        fillOpacity: 0.1,
+                        radius: base.range 
+                    }).addTo(map).bindPopup(`Base: ${base.name}`);
+                });
+            } catch (e) { console.error("Error loading static data:", e); }
         }
 
-        marker = L.marker([lat, lng])
-            .addTo(map)
-            .bindPopup(
-                `Threat: ${data.threat}<br>Interceptor: ${data.interceptor}`
-            )
-            .openPopup();
-    }
+        // 2. Function to update the moving target
+        async function fetchData() {
+            try {
+                const res = await fetch("/last");
+                const data = await res.json();
 
-    setInterval(fetchData, 1000);
-</script>
+                if (!data || !data.target_coordinates) return;
 
+                const lat = data.target_coordinates.y;
+                const lng = data.target_coordinates.x;
+
+                if (targetMarker) { map.removeLayer(targetMarker); }
+
+                // Determine color based on threat
+                const color = data.threat === 'threat' ? '#ff0000' : '#ffa500';
+
+                const popupContent = `
+                    <div style="min-width: 180px;">
+                        <b style="color:${color}; font-size:1.1em;">⚠️ ${data.threat.toUpperCase()}</b>
+                        <hr style="margin: 5px 0;">
+                        
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px; font-size: 12px;">
+                            <span><b>Interceptor:</b></span> <span>${data.interceptor}</span>
+                            <span><b>Origin Base:</b></span> <span>${data.base}</span>
+                        </div>
+                        
+                        <hr style="margin: 5px 0;">
+                        <i style="font-size: 11px; color: #666;">Target Telemetry:</i>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2px; font-size: 12px; margin-top: 5px;">
+                            <span>Speed:</span> <b>${data.speed.toFixed(1)} m/s</b>
+                            <span>Altitude:</span> <b>${data.altitude.toFixed(0)} m</b>
+                            <span>Heading:</span> <b>${data.heading.toFixed(0)}°</b>
+                            <span>Lat:</span> <b>${lat.toFixed(3)}</b>
+                            <span>Lon:</span> <b>${lng.toFixed(3)}</b>
+                        </div>
+                        <div style="text-align: right; font-size: 10px; color: #999; margin-top: 8px;">
+                            Last Report: ${data.time}
+                        </div>
+                    </div>
+                `;
+
+                targetMarker = L.marker([lat, lng]).addTo(map)
+                    .bindPopup(popupContent).openPopup();
+
+            } catch (e) { console.error("Error fetching target:", e); }
+        }
+
+        // Initialize
+        loadStaticData();
+        setInterval(fetchData, 500);
+    </script>
 </body>
 </html>

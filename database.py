@@ -22,7 +22,8 @@ class BaseStation(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String)
     x = Column(Float)
-    z = Column(Float)
+    y = Column(Float)
+    range_radius_m = Column(Float)
 
 
 class Interceptor(Base):
@@ -57,7 +58,7 @@ def seed_data():
         return
 
     db.add_all([
-        BaseStation(name="Riga", x=56.97475845607155, z=24.1670070219384)
+        BaseStation(name="Riga", y=56.97475845607155, x=24.1670070219384, range_radius_m=100000)
     ])
 
     db.add_all([

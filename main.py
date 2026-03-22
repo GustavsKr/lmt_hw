@@ -1,13 +1,14 @@
 # main.py
 import threading
 import uvicorn
+from geopy.distance import geodesic
 from simulate_radar import run_simulation
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, status
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from datetime import datetime
-from math import sqrt
+from math import radians, cos, sin, sqrt, atan2, degrees
 
 from database import engine, Base, seed_data, SessionLocal, BaseStation, Interceptor
 
@@ -25,6 +26,30 @@ class RadarData(BaseModel):
     longitude: float
     report_time: datetime
 
+class BaseData(BaseModel):
+    name: str
+    x: float
+    y: float
+    range_radius_m: float
+
+class InterceptorData(BaseModel):
+    name: str
+    speed: float
+    range: float
+    altitude: float
+    cost: float
+
+def latlon_to_meters_distance(base_lat: float, base_lon: float, target_lat: float, target_lon: float):
+    """
+    Converts the difference between base and target latitude/longitude coordinates
+    into distance in meters
+    """
+    base = (base_lat, base_lon)
+    target = (target_lat, target_lon)
+    
+    # Returns distance in meters
+    return geodesic(base, target).meters
+
 def classify_threat(speed: float, altitude: float):
     """
     AI assisted: structured logic based on assignment rules
@@ -38,98 +63,145 @@ def classify_threat(speed: float, altitude: float):
     else:
         return "potential threat"
 
-def calculate_distance(x1, z1, x2, z2):
+def get_closest_base(db, target_lat: float, target_lon: float):
     """
-    Euclidean distance (flat earth assumption)
+    Returns the closest base to the target **within its operational range**.
+    Coordinates are assumed to be in degrees, so we convert to meters.
     """
-    return sqrt((x2 - x1) ** 2 + (z2 - z1) ** 2)
-
-def get_closest_base(db, x, z):
     bases = db.query(BaseStation).all()
-
-    def distance(b):
-        return sqrt((b.x - x) ** 2 + (b.z - z) ** 2)
-
-    return min(bases, key=distance)
-
-def choose_interceptor(interceptors, target_distance, target_altitude, target_speed):
     candidates = []
+
+    for b in bases:
+        # b.y is Latitude, b.x is Longitude
+        distance = latlon_to_meters_distance(b.y, b.x, target_lat, target_lon)
+
+        if distance <= b.range_radius_m:
+            candidates.append((b, distance))
+    
+    return min(candidates, key=lambda x: x[1])[0] if candidates else None
+
+def choose_interceptor(interceptors: InterceptorData, base: BaseData, data: RadarData, threat: str):
+    candidates = []
+
+    # 1. Precise distance in meters
+    target_distance = latlon_to_meters_distance(base.y, base.x, data.latitude, data.longitude)
+
+    # 2. Calculate direction from Base to Target
+    dy = data.latitude - base.y
+    dx = data.longitude - base.x
+    angle_to_target_deg = degrees(atan2(dy, dx))
+
+    # 3. Difference between target's flight path and the line from the base
+    # (radians needed for math.cos)
+    angle_diff_rad = radians(data.heading_deg - angle_to_target_deg)
 
     for i in interceptors:
         # Physical constraints
-        if target_distance > i.range or target_altitude > i.altitude or target_speed > i.speed:
+        if target_distance > i.range or data.altitude_m > i.altitude:
             continue
 
-        intercept_time = target_distance / (i.speed - target_speed)
+        # How fast the target is moving AWAY from the base
+        # If result is negative, target is moving TOWARD the base
+        target_v_away = data.speed_ms * cos(angle_diff_rad)
+
+        # Interceptor must be faster than the target's retreat speed
+        relative_speed = i.speed - target_v_away
+
+        if relative_speed <= 0:
+            continue
+
+        intercept_time = target_distance / relative_speed
 
         candidates.append({
             "obj": i,
             "cost": i.cost,
-            "speed": i.speed,
             "time": intercept_time
         })
 
     if not candidates:
         return None
 
-    # Sort by cost
-    candidates.sort(key=lambda x: x['cost'])
-    best = candidates[0]
-
-    return best['obj']
+    # Sort by fastest intercept time and based on threat
+    if threat == "threat":
+        candidates.sort(key=lambda x: (x['time'], x['cost']))
+    else:
+        candidates.sort(key=lambda x: (x['cost'], x['time']))
+    return candidates[0]['obj']
 
 @app.post("/radar")
 def process_radar(data: RadarData):
     global last_result
 
     db = SessionLocal()
-    interceptors = db.query(Interceptor).all()
+    try:
+        base = get_closest_base(db, data.latitude, data.longitude)
+        if not base:
+            # No base in range 404 Not Found
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No base in range of the target"
+            )
 
-    threat = classify_threat(data.speed_ms, data.altitude_m)
+        interceptors = db.query(Interceptor).all()
 
-    if threat == "no threat":
-        db.close()
-        result = {"threat": threat, "action": "ignore"}
-        last_result = result
-        return result
+        threat = classify_threat(data.speed_ms, data.altitude_m)
 
-    base = get_closest_base(db, data.latitude, data.longitude)
+        if threat == "no threat":
+            result = {
+                "threat": threat, 
+                "base": base.name, 
+                "action": "ignore",
+                "target_coordinates": {"x": data.longitude, "y": data.latitude} # Add this!
+            }
+            last_result = result
+            return result  # 200
 
-    distance = calculate_distance(
-        base.x,
-        base.z,
-        data.latitude,
-        data.longitude
-    )
+        interceptor = choose_interceptor(interceptors, base, data, threat)
 
-    interceptor = choose_interceptor(interceptors, distance, data.altitude_m, data.speed_ms)
+        if not interceptor:
+            # Interceptor can't reach target 400 Bad Request
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No available interceptor can reach the target"
+            )
 
-    if not interceptor:
-        db.close()
         result = {
             "threat": threat,
-            "action": "no available interceptor"
+            "base": base.name,
+            "interceptor": interceptor.name,
+            "target_coordinates": {
+                "x": data.longitude,
+                "y": data.latitude
+            },
+            "speed": data.speed_ms,
+            "altitude": data.altitude_m,
+            "heading": data.heading_deg,
+            "time": data.report_time.strftime("%H:%M:%S")
         }
+
         last_result = result
-        return result
+        return result  # 200
 
-    result = {
-        "threat": threat,
-        "base": base.name,
-        "interceptor": interceptor.name,
-        "intercept_coordinates": {
-            "x": data.latitude,
-            "z": data.longitude
-        }
-    }
-
-    db.close()
-    last_result = result
-    return result
+    finally:
+        db.close()
 
 @app.get("/last")
 def get_last():
     return last_result
+
+@app.get("/map-data")
+def get_map_data():
+    db = SessionLocal()
+    try:
+        bases = db.query(BaseStation).all()
+        interceptors = db.query(Interceptor).all()
+        
+        return {
+            "bases": [{"name": b.name, "x": b.x, "y": b.y, "range": b.range_radius_m} for b in bases],
+            "interceptors": [{"name": i.name, "range": i.range} for i in interceptors]
+        }
+    finally:
+        db.close()
 
 @app.get("/")
 def root():

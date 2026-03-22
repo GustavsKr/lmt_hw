@@ -9,11 +9,6 @@ def test_classify_threat():
     assert classify_threat(50, 500) == "caution"
 
 
-def test_distance_zero():
-    assert calculate_distance(0, 0, 0, 0) == 0
-    assert calculate_distance(0, 0, 3, 4) == 5  # 3-4-5 triangle
-
-
 class Interceptor:
     def __init__(self, name, speed, range, altitude, cost):
         self.name = name
