@@ -80,31 +80,20 @@ def get_closest_base(db, target_lat: float, target_lon: float):
     
     return min(candidates, key=lambda x: x[1])[0] if candidates else None
 
-def choose_interceptor(interceptors: InterceptorData, base: BaseData, data: RadarData, threat: str):
+def choose_interceptor(interceptors, base, data: RadarData, threat: str):
     candidates = []
 
-    # 1. Precise distance in meters
     target_distance = latlon_to_meters_distance(base.y, base.x, data.latitude, data.longitude)
-
-    # 2. Calculate direction from Base to Target
     dy = data.latitude - base.y
     dx = data.longitude - base.x
     angle_to_target_deg = degrees(atan2(dy, dx))
-
-    # 3. Difference between target's flight path and the line from the base
-    # (radians needed for math.cos)
     angle_diff_rad = radians(data.heading_deg - angle_to_target_deg)
 
     for i in interceptors:
-        # Physical constraints
         if target_distance > i.range or data.altitude_m > i.altitude:
             continue
 
-        # How fast the target is moving AWAY from the base
-        # If result is negative, target is moving TOWARD the base
         target_v_away = data.speed_ms * cos(angle_diff_rad)
-
-        # Interceptor must be faster than the target's retreat speed
         relative_speed = i.speed - target_v_away
 
         if relative_speed <= 0:
@@ -115,17 +104,15 @@ def choose_interceptor(interceptors: InterceptorData, base: BaseData, data: Rada
         candidates.append({
             "obj": i,
             "cost": i.cost,
-            "time": intercept_time
+            "time": intercept_time,
+            "speed": i.speed
         })
 
     if not candidates:
         return None
 
-    # Sort by fastest intercept time and based on threat
-    if threat == "threat":
-        candidates.sort(key=lambda x: (x['time'], x['cost']))
-    else:
-        candidates.sort(key=lambda x: (x['cost'], x['time']))
+    candidates.sort(key=lambda x: (x['cost'], x['time']))
+
     return candidates[0]['obj']
 
 @app.post("/radar")
