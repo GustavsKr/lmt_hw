@@ -52,7 +52,7 @@ def latlon_to_meters_distance(base_lat: float, base_lon: float, target_lat: floa
 
 def classify_threat(speed: float, altitude: float):
     """
-    AI assisted: structured logic based on assignment rules
+    Classify threat level based off speed and altitude
     """
     if speed < 15 or altitude < 200:
         return "no threat"
@@ -80,7 +80,7 @@ def get_closest_base(db, target_lat: float, target_lon: float):
     
     return min(candidates, key=lambda x: x[1])[0] if candidates else None
 
-def choose_interceptor(interceptors, base, data: RadarData, threat: str):
+def choose_interceptor(interceptors, base: BaseData, data: RadarData, threat: str):
     candidates = []
 
     target_distance = latlon_to_meters_distance(base.y, base.x, data.latitude, data.longitude)
