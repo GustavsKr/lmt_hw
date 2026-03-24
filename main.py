@@ -138,7 +138,7 @@ def process_radar(data: RadarData):
                 "threat": threat, 
                 "base": base.name, 
                 "action": "ignore",
-                "target_coordinates": {"x": data.longitude, "y": data.latitude} # Add this!
+                "target_coordinates": {"x": data.longitude, "y": data.latitude}
             }
             last_result = result
             return result  # 200
